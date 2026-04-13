@@ -8,11 +8,12 @@ Current mode: batch + optional live microphone capture.
 
 1. Captures user audio from a file or microphone.
 2. Transcribes speech to text with Whisper.
-3. Optionally checks wake word.
-4. Sends transcript to local LLM (Ollama/Gemma).
-5. Cleans output text for speech safety.
-6. Speaks the response with Piper + ffplay.
-7. Leaves room for future robot motor commands (ESP32).
+3. Sends real-time robot state updates over HTTP.
+4. Optionally checks wake word.
+5. Sends transcript to local LLM (Ollama/Gemma).
+6. Cleans output text for speech safety.
+7. Speaks the response with Piper + ffplay.
+8. Leaves room for future robot motor command execution.
 
 ## Project flow
 
@@ -20,10 +21,80 @@ Execution flow in the current codebase:
 
 1. Audio input stage: [audio_input.py](audio_input.py)
 2. Speech-to-text stage: [speech_to_text.py](speech_to_text.py)
-3. Text processing + prompt + sanitization: [text_processing.py](text_processing.py)
-4. Text-to-speech playback: [text_to_speech.py](text_to_speech.py)
-5. Orchestration of full loop: [main.py](main.py)
-6. Future motor control integration point: [robot_controller.py](robot_controller.py)
+3. Robot state publisher (HTTP): [robot_controller.py](robot_controller.py)
+4. Text processing + prompt + sanitization: [text_processing.py](text_processing.py)
+5. Text-to-speech playback: [text_to_speech.py](text_to_speech.py)
+6. Orchestration of full loop: [main.py](main.py)
+
+## Robot states and behavior
+
+The robot receives one of four global states in real time:
+
+- LISTENING: intended for arm motion only
+- THINKING: intended for eye motion only
+- SPEAKING: intended for mouth + arm motion
+- IDLE: no motion
+
+State endpoint contract (current implementation):
+
+- POST /state
+- JSON payload example:
+
+```json
+{
+  "state": "THINKING",
+  "components": {
+    "arms": false,
+    "eyes": true,
+    "mouth": false
+  },
+  "timestamp_ms": 1760000000000
+}
+```
+
+Speaking sync helpers (for mouth animation timing):
+
+- POST /speaking-plan: sends word count, estimated duration, mouth states, and a GO bit
+- POST /signal: sends `{ "go": 1 }`
+
+Speaking-plan payload example:
+
+```json
+{
+  "word_count": 24,
+  "estimated_duration_ms": 8600,
+  "mouth_states": ["CLOSED", "HALF_OPEN", "OPEN"],
+  "recommended_tick_ms": 180,
+  "go": 1,
+  "timestamp_ms": 1760000001000
+}
+```
+
+These values are intentionally simple so you can tune servo angles/speeds manually on hardware.
+
+## Ollama API path
+
+The LLM call in [text_processing.py](text_processing.py) uses Ollama local HTTP API first:
+
+- URL: `http://127.0.0.1:11434/api/generate`
+- Method: POST
+- JSON body:
+
+```json
+{
+  "model": "gemma4:e4b",
+  "prompt": "...",
+  "stream": false
+}
+```
+
+Why this path is used:
+
+- Non-stream output is cleaner for deterministic sanitization
+- Avoids terminal formatting/noise from CLI streaming output
+- Faster integration for robot timing metadata
+
+If the HTTP call fails, code falls back to `ollama run` CLI.
 
 ## Quick start
 
@@ -69,6 +140,10 @@ c:/Users/aroml/Repo/.venv/Scripts/python.exe .\main.py --audio-file .\intro.wav 
 - --live: record from microphone
 - --recording-file audio.wav: output file for live recording
 - --max-record-seconds 25: safety cap for live recording length
+- --robot-ip 192.168.4.1: target ESP32 IP (placeholder)
+- --robot-timeout-ms 120: request timeout for real-time state updates
+- --no-robot: disable robot HTTP calls
+- --robot-strict: fail program if robot HTTP requests fail
 
 ## Notes
 
