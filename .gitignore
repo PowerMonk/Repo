@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+
+# Local environment/config
+.env
+.env.*
+
+# IDE/editor
+.vscode/
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+
+# Local audio artifacts
+recordings/
+audio.wav
+
+# Large local model binaries
+models/*.onnx
+models/*.onnx.json
